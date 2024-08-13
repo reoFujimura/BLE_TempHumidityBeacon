@@ -79,6 +79,10 @@ static ble_gap_adv_params_t m_adv_params;                                  /**< 
 static uint8_t              m_adv_handle = BLE_GAP_ADV_SET_HANDLE_NOT_SET; /**< Advertising handle used to identify an advertising set. */
 static uint8_t              m_enc_advdata[BLE_GAP_ADV_SET_DATA_SIZE_MAX];  /**< Buffer for storing an encoded advertising set. */
 
+APP_TIMER_DEF(TIMER_ID_TEST);
+#define TIMER_FUNCTION_MS APP_TIMER_TICKS(100)
+#define APP_TIMER_OP_QUEUE_SIZE (1)         /**< APP_TIMERをCreateする最大数 */
+
 /**@brief Struct that contains pointers to the encoded advertising data. */
 static ble_gap_adv_data_t m_adv_data =
 {
@@ -141,15 +145,18 @@ static void advertising_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static uint16_t dCount = 0;
+
 static void advertising_update(void)
 {
     uint32_t err_code;
 
     ble_advdata_t advdata;
 
-    uint16_t illuminance_0_1lux = 0;
-    m_beacon_info[6] = (uint8_t)((illuminance_0_1lux >> 8) & 0x00FF);
-    m_beacon_info[7] = (uint8_t)((illuminance_0_1lux >> 0) & 0x00FF);
+    m_beacon_info[6] = (uint8_t)((dCount >> 8) & 0x00FF);
+    m_beacon_info[7] = (uint8_t)((dCount >> 0) & 0x00FF);
+
+    dCount++;
 
     ble_advdata_service_data_t service_data;
     service_data.service_uuid = OPEN_SENSOR_SERVICE_UUID;
@@ -229,6 +236,14 @@ static void timers_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static void timers_start(void)
+{
+    ret_code_t ret = app_timer_create(&TIMER_ID_TEST, APP_TIMER_MODE_REPEATED, advertising_update);
+    APP_ERROR_CHECK(ret);
+    ret = app_timer_start(TIMER_ID_TEST, TIMER_FUNCTION_MS, NULL);
+    APP_ERROR_CHECK(ret);
+}
+
 
 /**@brief Function for initializing power management.
  */
@@ -270,6 +285,7 @@ int main(void)
     // Start execution.
     NRF_LOG_INFO("Beacon example started.");
     advertising_start();
+    timers_start();
 
     // Enter main loop.
     for (;; )
