@@ -49,6 +49,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "nordic_common.h"
 #include "bsp.h"
 #include "nrf_soc.h"
@@ -62,6 +63,7 @@
 #include "nrf_log_ctrl.h"
 #include "nrf_log_default_backends.h"
 #include "nrf_drv_twi.h"
+#include "nrf_delay.h"
 
 #define APP_BLE_CONN_CFG_TAG            1                                  /**< A tag identifying the SoftDevice BLE configuration. */
 
@@ -327,6 +329,24 @@ int main(void)
 
     twi_init();
 //    twi_scanI2cDevices();
+
+    uint8_t tx_data[] = {0x24, 0x00};
+    ret_code_t ret = nrf_drv_twi_tx(&m_twi, 0x45, tx_data, sizeof(tx_data), false);
+    printf("@@@%s(%d):%d\n", __func__, __LINE__, ret);
+    nrf_delay_ms(300);
+    
+    uint8_t rx_data[6];
+    ret = nrf_drv_twi_rx(&m_twi, 0x45, rx_data, 6);
+    printf("@@@%s(%d):%d\n", __func__, __LINE__, ret);
+
+    uint16_t temp = (rx_data[0] << 8) + rx_data[1];
+    uint16_t humi = (rx_data[3] << 8) + rx_data[4];
+
+    temp = -45 + 175 * temp / (65536 - 1);
+    humi = 100 * humi / (65536 - 1);
+
+    printf("@@@(%d)%d\n"  , __LINE__, temp);
+    printf("@@@(%d)%d\n"  , __LINE__, humi);
 
     // Enter main loop.
     for (;; )
