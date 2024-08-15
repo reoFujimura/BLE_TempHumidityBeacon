@@ -65,14 +65,26 @@
 #include "nrf_drv_twi.h"
 #include "nrf_delay.h"
 
+/******************************************************************************
+ * Local function declarations
+ ******************************************************************************/
+static void twi_scanI2cDevices(void);
+static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi);
+
+/*******************************************************************************
+ *  Static variables
+ ******************************************************************************/
 #define APP_BLE_CONN_CFG_TAG            1                                  /**< A tag identifying the SoftDevice BLE configuration. */
 
 #define NON_CONNECTABLE_ADV_INTERVAL    MSEC_TO_UNITS(100, UNIT_0_625_MS)  /**< The advertising interval for non-connectable advertisement (100 ms). This value can vary between 100ms to 10.24s). */
 
 #define DATA_SCHEMA_VERSION             0x01                               /**< Reserved area. */
 #define DEVICE_IDENTIFIER               0x11, 0x22, 0x33, 0x44             /**< Temporary value. */
-#define DATA_TYPE_ILLUMINANCE           0x13                               /**< Illuminance (unit:0.1lux). */
-#define ILLUMINANCE_LUX                 0x00, 0x00                         /**< Illuminance value. */
+#define DATA_TYPE_TEMPERATURE           0x10                               /**< temperature (unit:0.01½. */
+#define TEMPERATURE_VAL                 0x00, 0x00                         /**< temperature value. */
+#define DATA_TYPE_HUMIDITY              0x11                               /**< humidity    (unit:0.01%). */
+#define HUMIDITY_VAL                    0x00, 0x00                         /**< humidity value. */
+
 #define OPEN_SENSOR_SERVICE_UUID        0xFCBE                             /**< Assigned number by Musen connect. */
 
 #define DEAD_BEEF                       0xDEADBEEF                         /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
@@ -105,8 +117,10 @@ static uint8_t m_beacon_info[] =                    /**< Information advertised 
 {
     DATA_SCHEMA_VERSION, 
     DEVICE_IDENTIFIER, 
-    DATA_TYPE_ILLUMINANCE,
-    ILLUMINANCE_LUX,
+    DATA_TYPE_TEMPERATURE,
+    TEMPERATURE_VAL,
+    DATA_TYPE_HUMIDITY,
+    HUMIDITY_VAL,
 };
 
 /**@brief Callback function for asserts in the SoftDevice.
@@ -147,18 +161,24 @@ static void advertising_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
-static uint16_t dCount = 0;
-
 static void advertising_update(void)
 {
     uint32_t err_code;
 
     ble_advdata_t advdata;
 
-    m_beacon_info[6] = (uint8_t)((dCount >> 8) & 0x00FF);
-    m_beacon_info[7] = (uint8_t)((dCount >> 0) & 0x00FF);
+    uint16_t temp;
+    uint16_t humi;
 
-    dCount++;
+    if (!getSht31(&temp, &humi)) {
+        return;
+    }
+
+    m_beacon_info[6] = (uint8_t)((temp >> 8) & 0x00FF);
+    m_beacon_info[7] = (uint8_t)((temp >> 0) & 0x00FF);
+
+    m_beacon_info[9] = (uint8_t)((humi >> 8) & 0x00FF);
+    m_beacon_info[10] = (uint8_t)((humi >> 0) & 0x00FF);
 
     ble_advdata_service_data_t service_data;
     service_data.service_uuid = OPEN_SENSOR_SERVICE_UUID;
@@ -306,9 +326,6 @@ void twi_init (void)
     nrf_drv_twi_enable(&m_twi);
 }
 
-static void twi_scanI2cDevices(void);
-static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi);
-
 /**
  * @brief Function for application main entry.
  */
@@ -320,6 +337,7 @@ int main(void)
     leds_init();
     power_management_init();
     ble_stack_init();
+    twi_init();
     advertising_init();
     advertising_update();
 
@@ -327,13 +345,6 @@ int main(void)
     NRF_LOG_INFO("Beacon example started.");
     advertising_start();
     timers_start();
-
-    twi_init();
-//    twi_scanI2cDevices();
-
-    uint16_t temp, humi;
-    getSht31(&temp, &humi);
-    printf("%d %d\n", temp, humi);
 
     // Enter main loop.
     for (;; )
