@@ -80,7 +80,7 @@ static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi);
 
 #define DATA_SCHEMA_VERSION             0x01                               /**< Reserved area. */
 #define DEVICE_IDENTIFIER               0x11, 0x22, 0x33, 0x44             /**< Temporary value. */
-#define DATA_TYPE_TEMPERATURE           0x10                               /**< temperature (unit:0.01�. */
+#define DATA_TYPE_TEMPERATURE           0x10                               /**< temperature (unit:0.01�. */
 #define TEMPERATURE_VAL                 0x00, 0x00                         /**< temperature value. */
 #define DATA_TYPE_HUMIDITY              0x11                               /**< humidity    (unit:0.01%). */
 #define HUMIDITY_VAL                    0x00, 0x00                         /**< humidity value. */
@@ -353,6 +353,17 @@ int main(void)
     }
 }
 
+/*******************************************************************************
+ *
+ * Function        getSht31
+ *
+ * Description     getSht31から温度と湿度を取得する
+ *                 温度:±0.015度を1000倍した値をpTempに格納する
+ *                 湿度:0.01％を100倍した値をpHumiに格納する
+ * 
+ * Returns         status
+ *
+ ******************************************************************************/
 static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi) {
 
     if (pTemp == NULL || pHumi == NULL) {
@@ -376,11 +387,13 @@ static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi) {
         return false;
     }
 
-    *pTemp = (rx_data[0] << 8) + rx_data[1];
-    *pHumi = (rx_data[3] << 8) + rx_data[4];
+    uint16_t tTemp = (rx_data[0] << 8) + rx_data[1];
+    float tempF = -45.0 + 175.0 * tTemp / (65536.0 - 1.0);
+    *pTemp = tempF * 1000;
 
-    *pTemp = -45 + 175 * *pTemp / (65536 - 1);
-    *pHumi = 100 * *pHumi / (65536 - 1);
+    uint16_t tHumi = (rx_data[3] << 8) + rx_data[4];
+    float humiF = 100.0 * tHumi / (65536.0 - 1.0);
+    *pHumi = humiF * 100;
 
     return true;
 }
