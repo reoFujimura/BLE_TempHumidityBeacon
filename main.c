@@ -306,7 +306,8 @@ void twi_init (void)
     nrf_drv_twi_enable(&m_twi);
 }
 
-void twi_scanI2cDevices(void);
+static void twi_scanI2cDevices(void);
+static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi);
 
 /**
  * @brief Function for application main entry.
@@ -330,23 +331,9 @@ int main(void)
     twi_init();
 //    twi_scanI2cDevices();
 
-    uint8_t tx_data[] = {0x24, 0x00};
-    ret_code_t ret = nrf_drv_twi_tx(&m_twi, 0x45, tx_data, sizeof(tx_data), false);
-    printf("@@@%s(%d):%d\n", __func__, __LINE__, ret);
-    nrf_delay_ms(300);
-    
-    uint8_t rx_data[6];
-    ret = nrf_drv_twi_rx(&m_twi, 0x45, rx_data, 6);
-    printf("@@@%s(%d):%d\n", __func__, __LINE__, ret);
-
-    uint16_t temp = (rx_data[0] << 8) + rx_data[1];
-    uint16_t humi = (rx_data[3] << 8) + rx_data[4];
-
-    temp = -45 + 175 * temp / (65536 - 1);
-    humi = 100 * humi / (65536 - 1);
-
-    printf("@@@(%d)%d\n"  , __LINE__, temp);
-    printf("@@@(%d)%d\n"  , __LINE__, humi);
+    uint16_t temp, humi;
+    getSht31(&temp, &humi);
+    printf("%d %d\n", temp, humi);
 
     // Enter main loop.
     for (;; )
@@ -355,7 +342,39 @@ int main(void)
     }
 }
 
-void twi_scanI2cDevices(void) {
+static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi) {
+
+    if (pTemp == NULL || pHumi == NULL) {
+        printf("%s(%d):E Invalid Argument\n", __func__, __LINE__);
+        return false;
+    }
+
+    uint8_t tx_data[] = {0x24, 0x00};
+    ret_code_t ret = nrf_drv_twi_tx(&m_twi, 0x45, tx_data, sizeof(tx_data), false);
+    if (ret != NRF_SUCCESS) {
+        printf("%s(%d):E fail %d\n", __func__, __LINE__, ret);
+        return false;
+    }
+
+    nrf_delay_ms(300);
+    
+    uint8_t rx_data[6];
+    ret = nrf_drv_twi_rx(&m_twi, 0x45, rx_data, 6);
+    if (ret != NRF_SUCCESS) {
+        printf("%s(%d):E fail %d\n", __func__, __LINE__, ret);
+        return false;
+    }
+
+    *pTemp = (rx_data[0] << 8) + rx_data[1];
+    *pHumi = (rx_data[3] << 8) + rx_data[4];
+
+    *pTemp = -45 + 175 * *pTemp / (65536 - 1);
+    *pHumi = 100 * *pHumi / (65536 - 1);
+
+    return true;
+}
+
+static void twi_scanI2cDevices(void) {
     bool detected_device = false;
     uint8_t sample_data;
 
