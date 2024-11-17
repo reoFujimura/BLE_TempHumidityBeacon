@@ -237,13 +237,6 @@ static void log_init(void)
     NRF_LOG_DEFAULT_BACKENDS_INIT();
 }
 
-/**@brief Function for initializing LEDs. */
-static void leds_init(void)
-{
-    ret_code_t err_code = bsp_init(BSP_INIT_LEDS, NULL);
-    APP_ERROR_CHECK(err_code);
-}
-
 /**@brief Function for initializing power management.
  */
 static void power_management_init(void)
@@ -274,7 +267,6 @@ int main(void)
     // Initialize.
     log_init();
     TimerManager_Init();
-    leds_init();
     power_management_init();
     ble_stack_init();
     advertising_init();
