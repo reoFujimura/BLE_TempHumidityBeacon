@@ -71,21 +71,22 @@
  ******************************************************************************/
 static void onSensorDataReceived(int16_t temperature, int16_t humidity);
 
-/*******************************************************************************
- *  Static variables
- ******************************************************************************/
+/*============================================================================*/
+// define
+/*============================================================================*/
 #define APP_BLE_CONN_CFG_TAG            1                                  /**< A tag identifying the SoftDevice BLE configuration. */
-
 #define NON_CONNECTABLE_ADV_INTERVAL    MSEC_TO_UNITS(100, UNIT_0_625_MS)  /**< The advertising interval for non-connectable advertisement (100 ms). This value can vary between 100ms to 10.24s). */
-
+#define TIMER_FUNCTION_MS APP_TIMER_TICKS(1000)
 #define DATA_SCHEMA_VERSION             0x01                               /**< Reserved area. */
 #define DEVICE_IDENTIFIER               0x11, 0x22, 0x33, 0x44             /**< Temporary value. */
 #define DATA_TYPE_TEMPERATURE           0x10                               /**< temperature (unit:0.01) */
 #define DATA_TYPE_HUMIDITY              0x11                               /**< humidity    (unit:0.01) */
-
 #define OPEN_SENSOR_SERVICE_UUID        0xFCBE                             /**< Assigned number by Musen connect. */
 #define DEAD_BEEF                       0xDEADBEEF                         /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
+/*============================================================================*/
+// Local variable
+/*============================================================================*/
 static ble_gap_adv_params_t m_adv_params;                                  /**< Parameters to be passed to the stack when starting advertising. */
 static uint8_t              m_adv_handle = BLE_GAP_ADV_SET_HANDLE_NOT_SET; /**< Advertising handle used to identify an advertising set. */
 static uint8_t              m_enc_advdata[BLE_GAP_ADV_SET_DATA_SIZE_MAX];  /**< Buffer for storing an encoded advertising set. */
@@ -103,8 +104,6 @@ static uint8_t m_beacon_info[] =                    /**< Information advertised 
     0x00,
     0x00,
 };
-
-#define TIMER_FUNCTION_MS APP_TIMER_TICKS(5000)
 
 /**@brief Struct that contains pointers to the encoded advertising data. */
 static ble_gap_adv_data_t m_adv_data =
@@ -275,18 +274,18 @@ int main(void)
     // Initialize.
     log_init();
     TimerManager_Init();
-    TimerManager_Register(&TIMER_ID_MAIN, advertising_update, APP_TIMER_MODE_REPEATED);
     leds_init();
     power_management_init();
     ble_stack_init();
     advertising_init();
     SHT31_Init();
 
+    TimerManager_Register(&TIMER_ID_MAIN, advertising_update, APP_TIMER_MODE_REPEATED);
     advertising_start();
     TimerManager_Start(&TIMER_ID_MAIN, TIMER_FUNCTION_MS, NULL);
 
     // Enter main loop.
-    for (;; )
+    while (true)
     {
         idle_state_handle();
     }

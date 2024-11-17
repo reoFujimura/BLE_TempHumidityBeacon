@@ -12,16 +12,16 @@ typedef struct
 
 typedef struct
 {
-    Timer mTimerInstance[TIMER_CREATE_COUNT];
+    Timer mTimers[TIMER_CREATE_COUNT];
     uint8_t mRegisteredCount;
 } TimerManager;
 
-#define APP_TIMER_OP_QUEUE_SIZE (TIMER_CREATE_COUNT)         /**< APP_TIMERをCreateする最大数 */
+#define APP_TIMER_OP_QUEUE_SIZE (TIMER_CREATE_COUNT)
 
 /*============================================================================*/
 // Local function
 /*============================================================================*/
-static Timer* TimerManager_SearchTimer(TimerManager *this, app_timer_id_t *mpTimerId);
+static Timer* TimerManager_FindTimerById(TimerManager *this, app_timer_id_t *mpTimerId);
 
 /*============================================================================*/
 // Local variable
@@ -29,62 +29,69 @@ static Timer* TimerManager_SearchTimer(TimerManager *this, app_timer_id_t *mpTim
 TimerManager timerManager;
 
 void TimerManager_Init(void) {
-    for (size_t i = 0; i < TIMER_CREATE_COUNT; i++)
-    {
-        Timer *pTimer = &timerManager.mTimerInstance[i];
-        pTimer->mpTimerId = 0;
-        pTimer->mCallback = NULL;
-    }
+    memset(timerManager, 0, sizeof(timerManager));
+
     ret_code_t err_code = app_timer_init();
-    APP_ERROR_CHECK(err_code);
-    timerManager.mRegisteredCount = 0;
+    if (err_code != NRF_SUCCESS) {
+        printf("%s(%d) Error initializing app_timer: %d\n", __func__, __LINE__, err_code);
+        APP_ERROR_CHECK(err_code);
+    }
 }
 
 void TimerManager_Register(app_timer_id_t *pTimerId, TIMER_CALLBACK *pCallback, app_timer_mode_t mode) {
-    printf("%s(%d) TimerId %d\n", __func__, __LINE__, *pTimerId);
-    printf("%s(%d) RegisteredCount %d\n", __func__, __LINE__, timerManager.mRegisteredCount);
-
     if (timerManager.mRegisteredCount >= TIMER_CREATE_COUNT) {
-        printf("%s(%d) Unable to register because the maximum number has been reached\n", __func__, __LINE__);
+        printf("%s(%d) Failed to register timer: Maximum count (%d) reached\n", __func__, __LINE__, timerManager.mRegisteredCount);
+        return;
     }
 
-    Timer *pTimer = &timerManager.mTimerInstance[timerManager.mRegisteredCount];
-    pTimer->mCallback = pCallback;
-    pTimer->mpTimerId = pTimerId;
-    ret_code_t err_code = app_timer_create(pTimer->mpTimerId, mode, pTimer->mCallback);
-    APP_ERROR_CHECK(err_code);
-    timerManager.mRegisteredCount++;
+    Timer *pNewTimer = &timerManager.mTimers[timerManager.mRegisteredCount++];
+    pNewTimer->mCallback = pCallback;
+    pNewTimer->mpTimerId = pTimerId;
+    ret_code_t err_code = app_timer_create(pNewTimer->mpTimerId, mode, pNewTimer->mCallback);
+    if (err_code != NRF_SUCCESS) {
+        printf("%s(%d) Error creating timer: %d\n", __func__, __LINE__, err_code);
+        APP_ERROR_CHECK(err_code);
+    } else {
+        printf("%s(%d) Timer registered successfully (ID: %p)\n", __func__, __LINE__, pTimerId);
+    }
 }
 
 void TimerManager_Start(app_timer_id_t *pTimerId, uint32_t timeoutTicks, void *pContext) {
-    Timer *pTimer = TimerManager_SearchTimer(&timerManager, pTimerId);
+    Timer *pTimer = TimerManager_FindTimerById(&timerManager, pTimerId);
     if (pTimer == NULL) {
-        printf("%s(%d) Timer not registered\n", __func__, __LINE__);        
+        printf("%s(%d) Timer not registered ID %p\n", __func__, __LINE__, pTimerId);  
+        return;      
     }
 
     ret_code_t err_code = app_timer_start(*pTimer->mpTimerId, timeoutTicks, pContext);
-    APP_ERROR_CHECK(err_code);
+    if (err_code != NRF_SUCCESS) {
+        printf("%s(%d) Error starting timer (ID: %p): %d\n", __func__, __LINE__, pTimerId, err_code);
+        APP_ERROR_CHECK(err_code);
+    }
 }
 
 void TimerManager_Stop(app_timer_id_t *pTimerId) {
-    Timer *pTimer = TimerManager_SearchTimer(&timerManager, pTimerId);
+    Timer *pTimer = TimerManager_FindTimerById(&timerManager, pTimerId);
     if (pTimer == NULL) {
-        printf("%s(%d) Timer not registered\n", __func__, __LINE__);        
+        printf("%s(%d) Timer not registered\n", __func__, __LINE__);
+        return;
     }
 
     ret_code_t err_code = app_timer_stop(*pTimer->mpTimerId);
-    APP_ERROR_CHECK(err_code);
+    if (err_code != NRF_SUCCESS) {
+        printf("%s(%d) Error stopping timer (ID: %p): %d\n", __func__, __LINE__, pTimerId, err_code);
+        APP_ERROR_CHECK(err_code);
+    }
 }
 
-static Timer* TimerManager_SearchTimer(TimerManager *this, app_timer_id_t *mpTimerId) {
+static Timer* TimerManager_FindTimerById(TimerManager *this, app_timer_id_t *mpTimerId) {
 
     for (size_t i = 0; i < this->mRegisteredCount; i++)
     {
-        Timer *pTimer = &this->mTimerInstance[i];
-        if (pTimer->mpTimerId == mpTimerId) {
-            return pTimer;
+        if (this->mTimers[i].mpTimerId == mpTimerId) {
+            return &this->mTimers[i];
         }
     }
-    printf("%s(%d) Timer not registered\n", __func__, __LINE__);
+    printf("%s(%d) Timer not found (ID: %p)\n", __func__, __LINE__, mpTimerId);
     return NULL;
 }

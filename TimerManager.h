@@ -3,7 +3,7 @@
 #include "app_timer.h"
 #include <stdint.h>
 
-#define TIMER_CREATE_COUNT 2  /**< APP_TIMERをCreateする最大数 */
+#define TIMER_CREATE_COUNT 2  /**< Maximum number of timers created. */
 
 APP_TIMER_DEF(TIMER_ID_SHT31);
 APP_TIMER_DEF(TIMER_ID_MAIN);
