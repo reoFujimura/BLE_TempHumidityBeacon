@@ -48,7 +48,9 @@
       <file file_name="$(SDK)/components/libraries/button/app_button.c" />
       <file file_name="$(SDK)/components/libraries/util/app_error.c" />
       <file file_name="$(SDK)/components/libraries/util/app_error_handler_gcc.c" />
-      <file file_name="$(SDK)/components/libraries/util/app_error_weak.c" />
+      <file file_name="$(SDK)/components/libraries/util/app_error_weak.c">
+        <configuration Name="Release" c_additional_options="-DDEBUG" />
+      </file>
       <file file_name="$(SDK)/components/libraries/scheduler/app_scheduler.c" />
       <file file_name="$(SDK)/components/libraries/timer/app_timer2.c" />
       <file file_name="$(SDK)/components/libraries/util/app_util_platform.c" />
@@ -93,6 +95,12 @@
     <folder Name="Application">
       <file file_name="../../../main.c" />
       <file file_name="../config/sdk_config.h" />
+      <file file_name="../../../SHT31.c" />
+      <file file_name="../../../SHT31.h" />
+      <file file_name="../../../TWI.c" />
+      <file file_name="../../../TWI.h" />
+      <file file_name="../../../TimerManager.c" />
+      <file file_name="../../../TimerManager.h" />
     </folder>
     <folder Name="nRF_Segger_RTT">
       <file file_name="$(SDK)/external/segger_rtt/SEGGER_RTT.c" />

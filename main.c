@@ -56,20 +56,20 @@
 #include "nrf_sdh.h"
 #include "nrf_sdh_ble.h"
 #include "ble_advdata.h"
-#include "app_timer.h"
 #include "nrf_pwr_mgmt.h"
 
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 #include "nrf_log_default_backends.h"
-#include "nrf_drv_twi.h"
 #include "nrf_delay.h"
+
+#include "SHT31.h"
+#include "TimerManager.h"
 
 /******************************************************************************
  * Local function declarations
  ******************************************************************************/
-static void twi_scanI2cDevices(void);
-static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi);
+static void onSensorDataReceived(int16_t temperature, int16_t humidity);
 
 /*******************************************************************************
  *  Static variables
@@ -80,22 +80,31 @@ static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi);
 
 #define DATA_SCHEMA_VERSION             0x01                               /**< Reserved area. */
 #define DEVICE_IDENTIFIER               0x11, 0x22, 0x33, 0x44             /**< Temporary value. */
-#define DATA_TYPE_TEMPERATURE           0x10                               /**< temperature (unit:0.01�. */
-#define TEMPERATURE_VAL                 0x00, 0x00                         /**< temperature value. */
-#define DATA_TYPE_HUMIDITY              0x11                               /**< humidity    (unit:0.01%). */
-#define HUMIDITY_VAL                    0x00, 0x00                         /**< humidity value. */
+#define DATA_TYPE_TEMPERATURE           0x10                               /**< temperature (unit:0.01) */
+#define DATA_TYPE_HUMIDITY              0x11                               /**< humidity    (unit:0.01) */
 
 #define OPEN_SENSOR_SERVICE_UUID        0xFCBE                             /**< Assigned number by Musen connect. */
-
 #define DEAD_BEEF                       0xDEADBEEF                         /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
 static ble_gap_adv_params_t m_adv_params;                                  /**< Parameters to be passed to the stack when starting advertising. */
 static uint8_t              m_adv_handle = BLE_GAP_ADV_SET_HANDLE_NOT_SET; /**< Advertising handle used to identify an advertising set. */
 static uint8_t              m_enc_advdata[BLE_GAP_ADV_SET_DATA_SIZE_MAX];  /**< Buffer for storing an encoded advertising set. */
 
-APP_TIMER_DEF(TIMER_ID_TEST);
-#define TIMER_FUNCTION_MS APP_TIMER_TICKS(100)
-#define APP_TIMER_OP_QUEUE_SIZE (1)         /**< APP_TIMERをCreateする最大数 */
+static uint8_t m_beacon_info[] =                    /**< Information advertised by the Beacon. */
+{
+    DATA_SCHEMA_VERSION, 
+    DEVICE_IDENTIFIER, 
+    DATA_TYPE_TEMPERATURE,
+    /** The following 2 bytes are temperature data **/
+    0x00,
+    0x00,
+    DATA_TYPE_HUMIDITY,
+    /** The following 2 bytes are humidity data **/
+    0x00,
+    0x00,
+};
+
+#define TIMER_FUNCTION_MS APP_TIMER_TICKS(5000)
 
 /**@brief Struct that contains pointers to the encoded advertising data. */
 static ble_gap_adv_data_t m_adv_data =
@@ -113,15 +122,33 @@ static ble_gap_adv_data_t m_adv_data =
     }
 };
 
-static uint8_t m_beacon_info[] =                    /**< Information advertised by the Beacon. */
-{
-    DATA_SCHEMA_VERSION, 
-    DEVICE_IDENTIFIER, 
-    DATA_TYPE_TEMPERATURE,
-    TEMPERATURE_VAL,
-    DATA_TYPE_HUMIDITY,
-    HUMIDITY_VAL,
-};
+static void onSensorDataReceived(int16_t temperature, int16_t humidity) {
+    printf("%s(%d) temperature:%d\n", __func__, __LINE__, temperature);
+    printf("%s(%d) humidity:%d\n", __func__, __LINE__, humidity);
+
+    ble_advdata_t advdata;
+
+    m_beacon_info[6] = (uint8_t)((temperature >> 8) & 0x00FF);
+    m_beacon_info[7] = (uint8_t)((temperature >> 0) & 0x00FF);
+
+    m_beacon_info[9] = (uint8_t)((humidity >> 8) & 0x00FF);
+    m_beacon_info[10] = (uint8_t)((humidity >> 0) & 0x00FF);
+
+    ble_advdata_service_data_t service_data;
+    service_data.service_uuid = OPEN_SENSOR_SERVICE_UUID;
+    service_data.data.p_data = &m_beacon_info[0];
+    service_data.data.size = sizeof(m_beacon_info);
+
+    // Build and set advertising data.
+    memset(&advdata, 0, sizeof(advdata));
+    advdata.p_service_data_array = &service_data;
+    advdata.service_data_count   = 1;
+
+    ret_code_t err_code = ble_advdata_encode(&advdata, m_adv_data.adv_data.p_data, &m_adv_data.adv_data.len);
+    APP_ERROR_CHECK(err_code);
+    NRF_LOG_INFO("[adv]len=%d", m_adv_data.adv_data.len);
+    NRF_LOG_HEXDUMP_INFO(m_adv_data.adv_data.p_data, m_adv_data.adv_data.len);
+}
 
 /**@brief Callback function for asserts in the SoftDevice.
  *
@@ -146,7 +173,7 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
  */
 static void advertising_init(void)
 {
-    uint32_t      err_code;
+    ret_code_t      err_code;
 
     // Initialize advertising parameters (used when starting advertising).
     memset(&m_adv_params, 0, sizeof(m_adv_params));
@@ -163,39 +190,7 @@ static void advertising_init(void)
 
 static void advertising_update(void)
 {
-    uint32_t err_code;
-
-    ble_advdata_t advdata;
-
-    uint16_t temp;
-    uint16_t humi;
-
-    if (!getSht31(&temp, &humi)) {
-        return;
-    }
-
-    m_beacon_info[6] = (uint8_t)((temp >> 8) & 0x00FF);
-    m_beacon_info[7] = (uint8_t)((temp >> 0) & 0x00FF);
-
-    m_beacon_info[9] = (uint8_t)((humi >> 8) & 0x00FF);
-    m_beacon_info[10] = (uint8_t)((humi >> 0) & 0x00FF);
-
-    ble_advdata_service_data_t service_data;
-    service_data.service_uuid = OPEN_SENSOR_SERVICE_UUID;
-    service_data.data.p_data = &m_beacon_info[0];
-    service_data.data.size = sizeof(m_beacon_info);
-
-    // Build and set advertising data.
-    memset(&advdata, 0, sizeof(advdata));
-
-    advdata.p_service_data_array = &service_data;
-    advdata.service_data_count   = 1;
-
-    err_code = ble_advdata_encode(&advdata, m_adv_data.adv_data.p_data, &m_adv_data.adv_data.len);
-    APP_ERROR_CHECK(err_code);
-
-    NRF_LOG_INFO("[adv]len=%d", m_adv_data.adv_data.len);
-    NRF_LOG_HEXDUMP_INFO(m_adv_data.adv_data.p_data, m_adv_data.adv_data.len);
+    SHT31_GetValue(onSensorDataReceived);
 }
 
 /**@brief Function for starting advertising.
@@ -250,23 +245,6 @@ static void leds_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
-
-/**@brief Function for initializing timers. */
-static void timers_init(void)
-{
-    ret_code_t err_code = app_timer_init();
-    APP_ERROR_CHECK(err_code);
-}
-
-static void timers_start(void)
-{
-    ret_code_t ret = app_timer_create(&TIMER_ID_TEST, APP_TIMER_MODE_REPEATED, advertising_update);
-    APP_ERROR_CHECK(ret);
-    ret = app_timer_start(TIMER_ID_TEST, TIMER_FUNCTION_MS, NULL);
-    APP_ERROR_CHECK(ret);
-}
-
-
 /**@brief Function for initializing power management.
  */
 static void power_management_init(void)
@@ -289,43 +267,6 @@ static void idle_state_handle(void)
     }
 }
 
-/* Number of possible TWI addresses. */
-#define TWI_ADDRESSES      127
-
-#define ADAFRUIT_SCL 11
-#define ADAFRUIT_SDA 12
-
-/* TWI instance ID. */
-#if TWI0_ENABLED
-#define TWI_INSTANCE_ID     0
-#elif TWI1_ENABLED
-#define TWI_INSTANCE_ID     1
-#endif
-
-/* TWI instance. */
-static const nrf_drv_twi_t m_twi = NRF_DRV_TWI_INSTANCE(TWI_INSTANCE_ID);
-
-/**
- * @brief TWI initialization.
- */
-void twi_init (void)
-{
-    ret_code_t err_code;
-
-    const nrf_drv_twi_config_t twi_config = {
-       .scl                = ADAFRUIT_SCL,
-       .sda                = ADAFRUIT_SDA,
-       .frequency          = NRF_DRV_TWI_FREQ_100K,
-       .interrupt_priority = APP_IRQ_PRIORITY_HIGH,
-       .clear_bus_init     = false
-    };
-
-    err_code = nrf_drv_twi_init(&m_twi, &twi_config, NULL, NULL);
-    APP_ERROR_CHECK(err_code);
-
-    nrf_drv_twi_enable(&m_twi);
-}
-
 /**
  * @brief Function for application main entry.
  */
@@ -333,18 +274,16 @@ int main(void)
 {
     // Initialize.
     log_init();
-    timers_init();
+    TimerManager_Init();
+    TimerManager_Register(&TIMER_ID_MAIN, advertising_update, APP_TIMER_MODE_REPEATED);
     leds_init();
     power_management_init();
     ble_stack_init();
-    twi_init();
     advertising_init();
-    advertising_update();
+    SHT31_Init();
 
-    // Start execution.
-    NRF_LOG_INFO("Beacon example started.");
     advertising_start();
-    timers_start();
+    TimerManager_Start(&TIMER_ID_MAIN, TIMER_FUNCTION_MS, NULL);
 
     // Enter main loop.
     for (;; )
@@ -352,74 +291,3 @@ int main(void)
         idle_state_handle();
     }
 }
-
-/*******************************************************************************
- *
- * Function        getSht31
- *
- * Description     getSht31から温度と湿度を取得する
- *                 温度:±0.015度を1000倍した値をpTempに格納する
- *                 湿度:0.01％を100倍した値をpHumiに格納する
- * 
- * Returns         status
- *
- ******************************************************************************/
-static bool getSht31(uint16_t* const pTemp, uint16_t* const pHumi) {
-
-    if (pTemp == NULL || pHumi == NULL) {
-        printf("%s(%d):E Invalid Argument\n", __func__, __LINE__);
-        return false;
-    }
-
-    uint8_t tx_data[] = {0x24, 0x00};
-    ret_code_t ret = nrf_drv_twi_tx(&m_twi, 0x45, tx_data, sizeof(tx_data), false);
-    if (ret != NRF_SUCCESS) {
-        printf("%s(%d):E fail %d\n", __func__, __LINE__, ret);
-        return false;
-    }
-
-    nrf_delay_ms(300);
-    
-    uint8_t rx_data[6];
-    ret = nrf_drv_twi_rx(&m_twi, 0x45, rx_data, 6);
-    if (ret != NRF_SUCCESS) {
-        printf("%s(%d):E fail %d\n", __func__, __LINE__, ret);
-        return false;
-    }
-
-    uint16_t tTemp = (rx_data[0] << 8) + rx_data[1];
-    float tempF = -45.0 + 175.0 * tTemp / (65536.0 - 1.0);
-    *pTemp = tempF * 1000;
-
-    uint16_t tHumi = (rx_data[3] << 8) + rx_data[4];
-    float humiF = 100.0 * tHumi / (65536.0 - 1.0);
-    *pHumi = humiF * 100;
-
-    return true;
-}
-
-static void twi_scanI2cDevices(void) {
-    bool detected_device = false;
-    uint8_t sample_data;
-
-    for (uint8_t address = 1; address <= TWI_ADDRESSES; address++)
-    {
-        ret_code_t err_code = nrf_drv_twi_rx(&m_twi, address, &sample_data, sizeof(sample_data));
-        printf("@@@:%d\n",err_code);
-        if (err_code == NRF_SUCCESS)
-        {
-            detected_device = true;
-            printf("TWI device detected at address 0x%x.", address);
-            NRF_LOG_INFO("TWI device detected at address 0x%x.", address);
-        }
-        NRF_LOG_FLUSH();
-    }
-
-    if (!detected_device)
-    {
-        NRF_LOG_INFO("No device was found.");
-        printf("No device was found.");
-        NRF_LOG_FLUSH();
-    }  
-}
-
