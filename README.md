@@ -1,4 +1,4 @@
-# nRF52840の学習記録
+# nRF5 SDKの学習記録
 
 今回は、Adafruit Feather nRF52840 Expressを用いて、以下システム向けのファームウェアを開発しました。
 
